@@ -4,6 +4,7 @@
 namespace App\Controller;
 
 use App\Entity\OffreStage;
+use App\Entity\Candidature; // N'oubliez pas cet import
 use App\Form\OffreStageType;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -41,9 +42,7 @@ class EntrepriseController extends AbstractController
         $form->handleRequest($request);
 
         if ($form->isSubmitted() && $form->isValid()) {
-            // Valider automatiquement l'offre pour le développement
-            $offre->setEstValide(true); // ← AJOUTER CETTE LIGNE
-
+            $offre->setEstValide(true);
             $entityManager->persist($offre);
             $entityManager->flush();
 
@@ -56,12 +55,12 @@ class EntrepriseController extends AbstractController
             'edit' => false,
         ]);
     }
+
     #[Route('/offre/{id}/edit', name: 'app_entreprise_offre_edit')]
     public function editOffre(Request $request, OffreStage $offre, EntityManagerInterface $entityManager): Response
     {
         $this->denyAccessUnlessGranted('ROLE_ENTREPRISE');
 
-        // Vérifier que l'offre appartient à l'entreprise connectée
         if ($offre->getEntreprise() !== $this->getUser()) {
             throw $this->createAccessDeniedException('Vous ne pouvez pas modifier cette offre.');
         }
@@ -82,12 +81,12 @@ class EntrepriseController extends AbstractController
             'offre' => $offre,
         ]);
     }
+
     #[Route('/candidatures/{id}', name: 'app_entreprise_candidatures')]
     public function candidatures(OffreStage $offre, EntityManagerInterface $entityManager): Response
     {
         $this->denyAccessUnlessGranted('ROLE_ENTREPRISE');
 
-        // Vérifier que l'offre appartient à l'entreprise connectée
         if ($offre->getEntreprise() !== $this->getUser()) {
             throw $this->createAccessDeniedException();
         }
@@ -97,6 +96,54 @@ class EntrepriseController extends AbstractController
         return $this->render('entreprise/candidatures.html.twig', [
             'candidatures' => $candidatures,
             'offre' => $offre,
+        ]);
+    }
+
+    // CORRECTION IMPORTANTE : Changement du chemin de route
+    #[Route('/candidature/{id}/accepter', name: 'app_candidature_accepter', methods: ['GET'])]
+    public function accepter(Candidature $candidature, EntityManagerInterface $entityManager): Response
+    {
+        $this->denyAccessUnlessGranted('ROLE_ENTREPRISE');
+
+        $entreprise = $this->getUser();
+        $offre = $candidature->getOffre();
+
+        if ($offre->getEntreprise() !== $entreprise) {
+            $this->addFlash('error', 'Vous n\'avez pas le droit de modifier cette candidature.');
+            return $this->redirectToRoute('app_entreprise_dashboard');
+        }
+
+        $candidature->setStatut('accepte');
+        $entityManager->flush();
+
+        $this->addFlash('success', 'La candidature a été acceptée.');
+
+        return $this->redirectToRoute('app_entreprise_candidatures', [
+            'id' => $offre->getId(),
+        ]);
+    }
+
+    // CORRECTION IMPORTANTE : Changement du chemin de route
+    #[Route('/candidature/{id}/refuser', name: 'app_candidature_refuser', methods: ['GET'])]
+    public function refuser(Candidature $candidature, EntityManagerInterface $entityManager): Response
+    {
+        $this->denyAccessUnlessGranted('ROLE_ENTREPRISE');
+
+        $entreprise = $this->getUser();
+        $offre = $candidature->getOffre();
+
+        if ($offre->getEntreprise() !== $entreprise) {
+            $this->addFlash('error', 'Vous n\'avez pas le droit de modifier cette candidature.');
+            return $this->redirectToRoute('app_entreprise_dashboard');
+        }
+
+        $candidature->setStatut('refuse');
+        $entityManager->flush();
+
+        $this->addFlash('success', 'La candidature a été refusée.');
+
+        return $this->redirectToRoute('app_entreprise_candidatures', [
+            'id' => $offre->getId(),
         ]);
     }
 }
