@@ -4,8 +4,8 @@
 namespace App\Controller;
 
 use App\Entity\OffreStage;
-use App\Entity\Candidature; // N'oubliez pas cet import
 use App\Form\OffreStageType;
+use App\Entity\Candidature;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -15,12 +15,33 @@ use Symfony\Component\Routing\Annotation\Route;
 #[Route('/entreprise')]
 class EntrepriseController extends AbstractController
 {
+    private function checkValidation(): ?Response
+    {
+        $user = $this->getUser();
+        if ($user && method_exists($user, 'isEstValide') && !$user->isEstValide()) {
+            $this->addFlash('danger', 'Votre compte entreprise est en attente de validation.');
+            return $this->redirectToRoute('app_home');
+        }
+        return null;
+    }
+
+    // Dans src/Controller/EntrepriseController.php
+
     #[Route('/', name: 'app_entreprise_dashboard')]
-    public function dashboard(EntityManagerInterface $entityManager): Response
+    public function dashboard(EntityManagerInterface $entityManager, \Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface $tokenStorage, \Symfony\Component\HttpFoundation\Request $request): Response
     {
         $this->denyAccessUnlessGranted('ROLE_ENTREPRISE');
 
         $entreprise = $this->getUser();
+
+        // BLOCAGE DE CONNEXION SI NON VALIDÉ
+        if ($entreprise->getEstValide() === 0) {
+            $tokenStorage->setToken(null); // Déconnexion forcée
+            $request->getSession()->invalidate(); // Invalidation de la session
+            $this->addFlash('danger', 'Votre compte entreprise est en attente de validation par l\'administrateur.');
+            return $this->redirectToRoute('app_login');
+        }
+
         $offres = $entityManager->getRepository(OffreStage::class)
             ->findBy(['entreprise' => $entreprise]);
 
@@ -29,6 +50,7 @@ class EntrepriseController extends AbstractController
             'entreprise' => $entreprise,
         ]);
     }
+
 
     #[Route('/offre/new', name: 'app_entreprise_offre_new')]
     public function newOffre(Request $request, EntityManagerInterface $entityManager): Response
@@ -42,7 +64,8 @@ class EntrepriseController extends AbstractController
         $form->handleRequest($request);
 
         if ($form->isSubmitted() && $form->isValid()) {
-            $offre->setEstValide(true);
+            $offre->setEstValide(false);
+
             $entityManager->persist($offre);
             $entityManager->flush();
 
@@ -55,12 +78,12 @@ class EntrepriseController extends AbstractController
             'edit' => false,
         ]);
     }
-
     #[Route('/offre/{id}/edit', name: 'app_entreprise_offre_edit')]
     public function editOffre(Request $request, OffreStage $offre, EntityManagerInterface $entityManager): Response
     {
         $this->denyAccessUnlessGranted('ROLE_ENTREPRISE');
 
+        // Vérifier que l'offre appartient à l'entreprise connectée
         if ($offre->getEntreprise() !== $this->getUser()) {
             throw $this->createAccessDeniedException('Vous ne pouvez pas modifier cette offre.');
         }
@@ -81,12 +104,12 @@ class EntrepriseController extends AbstractController
             'offre' => $offre,
         ]);
     }
-
     #[Route('/candidatures/{id}', name: 'app_entreprise_candidatures')]
     public function candidatures(OffreStage $offre, EntityManagerInterface $entityManager): Response
     {
         $this->denyAccessUnlessGranted('ROLE_ENTREPRISE');
 
+        // Vérifier que l'offre appartient à l'entreprise connectée
         if ($offre->getEntreprise() !== $this->getUser()) {
             throw $this->createAccessDeniedException();
         }
@@ -98,8 +121,6 @@ class EntrepriseController extends AbstractController
             'offre' => $offre,
         ]);
     }
-
-    // CORRECTION IMPORTANTE : Changement du chemin de route
     #[Route('/candidature/{id}/accepter', name: 'app_candidature_accepter', methods: ['GET'])]
     public function accepter(Candidature $candidature, EntityManagerInterface $entityManager): Response
     {
@@ -122,8 +143,6 @@ class EntrepriseController extends AbstractController
             'id' => $offre->getId(),
         ]);
     }
-
-    // CORRECTION IMPORTANTE : Changement du chemin de route
     #[Route('/candidature/{id}/refuser', name: 'app_candidature_refuser', methods: ['GET'])]
     public function refuser(Candidature $candidature, EntityManagerInterface $entityManager): Response
     {
